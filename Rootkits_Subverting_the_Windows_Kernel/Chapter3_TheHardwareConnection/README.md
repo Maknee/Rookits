@@ -94,4 +94,65 @@ handle table for win32 kernel objects
 
 working set (physical memory “owned” by the process)
 
+When a context switch to a new thread occurs, the old thread state is saved. Each thread has its own kernel stack, so the thread state is pushed onto the top of the thread kernel stack. If the new thread belongs to a different process, the new page directory address for the new process is loaded into CR3. The page directory address can be found in the KPROCESS structure for the process. Once the new thread kernel stack is found, the new thread context is popped from the top of the new thread kernel stack, and the new thread begins execution. If a rootkit modifies the page tables of a process, the modifications will be applied to all threads in that process, because the threads all share the same CR3 value.
 
+The Global Descriptor Table
+A number of interesting tricks may be implemented via the GDT. The GDT can be used to map different address ranges. It can also be used to cause task switches. The base address of the GDT can be found using the SGDT instruction. You can alter the location of the GDT using the LGDT instruction.
+
+The Local Descriptor Table
+The LDT allows each task to have a set of unique descriptors. A bit known as the table-indicator bit can select between the GDT and the LDT when a segment is specified. The LDT can contain the same types of descriptors as the GDT.
+
+Code Segments
+When accessing code memory, the CPU uses the segment specified in the code segment (CS) register. A code segment can be specified in the descriptor table. Any program, including a rootkit, can change the CS register by issuing a far call, far jump, or far return, where CS is popped from the top of the stack.[6] It is interesting to note that you can make your code execute only by setting the R bit to zero in the descriptor.
+
+Call Gates
+A special kind of descriptor, called a call gate, can be placed in the LDT or the GDT. A program can make a far call with the descriptor set to the call gate. When the call occurs, a new ring level can be specified. A call gate could be used to allow a user-mode program to make a function call into kernel mode. This would be an interesting back door for a rootkit program. The same mechanism can be used with a far jump, but only when the call gate is of the same privilege level or lower than process performing the jump.[7]
+
+When a call gate is used, the address is ignored—only the descriptor number matters. The call gate data structure tells the CPU where the code for the called function lives. Optionally, arguments can be read from the stack. For example, a call gate could be created such that the caller puts secret command arguments onto the stack.
+
+
+The Interrupt Descriptor Table
+The interrupt descriptor table register (IDTR) stores the base (the start address) of the interrupt descriptor table (IDT) in memory. The IDT, used to find the software function employed to handle an interrupt, is very important.[8] Interrupts are used for a variety of low-level functions in a computer. For example, an interrupt is signaled whenever a keystroke is typed on the keyboard.
+
+The IDT is an array that contains 256 entries—one for each interrupt. That means there can be up to 256 interrupts for each processor. Also, each processor has its own IDTR, and therefore has its own interrupt table.
+
+When an interrupt occurs, the interrupt number is obtained from the interrupt instruction, or from the programmable interrupt controller (PIC). In either case, the interrupt table is used to find the appropriate software function to call. This function is sometimes called a vector or interrupt service routine (ISR).
+
+One trick employed by rootkits is to create a new interrupt table. This can be used to hide modifications made to the original interrupt table. 
+
+```C
+/* sidt returns idt in this format */
+typedef struct
+{
+   unsigned short IDTLimit;
+   unsigned short LowIDTbase;
+   unsigned short HiIDTbase;
+} IDTINFO;
+```
+
+Using the data provided by the SIDT instruction, an attacker can then find the base of the IDT and dump its contents.
+
+```C
+// entry in the IDT: this is sometimes called
+// an "interrupt gate"
+
+#pragma pack(1)
+typedef struct
+{
+      unsigned short LowOffset;
+      unsigned short selector;
+      unsigned char unused_lo;
+      unsigned char segment_type:4; //0x0E is interrupt gate
+      unsigned char system_segment_flag:1;
+      unsigned char DPL:2;     // descriptor privilege level
+      unsigned char P:1;       // present
+      unsigned short HiOffset;
+} IDTENTRY;
+#pragma pack()
+```
+
+To access the IDT, use the following code example as a guide:
+```C
+#define MAKELONG(a, b)
+((unsigned long) (((unsigned short) (a)) | ((unsigned long) ((unsigned short) (b))) << 16))
+```
