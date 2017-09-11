@@ -156,3 +156,43 @@ To access the IDT, use the following code example as a guide:
 #define MAKELONG(a, b)
 ((unsigned long) (((unsigned short) (a)) | ((unsigned long) ((unsigned short) (b))) << 16))
 ```
+
+CR0 has a write/read bit that allows writing to readonly pages
+
+
+```C
+      // UN-protect memory
+      __asm
+      {
+            push eax
+            mov  eax, CR0
+            and  eax, 0FFFEFFFFh
+            mov  CR0, eax
+            pop  eax
+      }
+      // do something
+      // RE-protect memory
+      __asm
+      {
+            push eax
+            mov  eax, CR0
+            or   eax, NOT 0FFFEFFFFh
+            mov  CR0, eax
+            pop  eax
+      }
+```
+
+
+Every CPU Has its Own Interrupt Table. If you hook the interrupt table, remember to hook it for all the CPUs! If you don’t, then your hook will only apply to a single CPU. This may be intentional if you don’t need to have 100% control over an interrupt—but this is rare.
+
+A driver that works fine on a single processor system may crash (produce a Blue Screen of Death) on a multiprocessor system. You must include multiprocessor systems into your test plan.
+
+The same driver function can be running in multiple contexts, on multiple CPUs, simultaneously. The only way to make this safe is to use locking and synchronization with shared resources.
+
+Multiprocessor systems provide interlock routines, Spinlocks, and Mutexes. These are tools provided by the system to help you synchronize access to data. Details on their use can be found in the DDK documentation.
+
+Don’t implement your own locking mechanisms. Use the tools the system already provides. If you really must do it yourself, then you must familiarize yourself with memory barriers (KeMemoryBarrier, etc.) and hardware reordering of instructions. These topics are beyond the scope of this book.
+
+Detect which processor you are running on. You can use a call like KeGetCurrentProcessorNumber to determine which processor your code is currently running on. You can also use KeGetActiveProcessors to determine how many active processors are in the system.
+
+Force execution on a specific processor. You can schedule code to be run on a particular processor. See KeSetTargetProcessorDPC in the DDK documentation.
